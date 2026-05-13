@@ -1,0 +1,562 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TideP2P — Instant Browser File Sharing</title>
+    <meta
+      name="description"
+      content="Modern peer-to-peer file sharing in your browser using WebRTC + WebTorrent. Deployable as a static site on Cloudflare Pages."
+    />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #05070f;
+        --panel: #10172a;
+        --panel-soft: #131f38;
+        --surface: #0b1222;
+        --text: #e9f1ff;
+        --muted: #96a9d0;
+        --border: #253a63;
+        --accent: #4ec8ff;
+        --accent-strong: #30b4ff;
+        --ok: #5effa5;
+        --warn: #ffb857;
+        --err: #ff6f95;
+        --radius: 16px;
+        --shadow: 0 14px 40px rgba(0, 0, 0, 0.35);
+      }
+
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        min-height: 100vh;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(80rem 40rem at 20% -10%, #1f3770 0%, transparent 50%),
+          radial-gradient(65rem 35rem at 100% 0%, #11355a 0%, transparent 55%),
+          var(--bg);
+      }
+
+      .container {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 2rem 1rem 3rem;
+      }
+
+      .hero {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 0.8rem;
+        align-items: end;
+        margin-bottom: 1.2rem;
+      }
+      h1 {
+        margin: 0;
+        font-size: clamp(1.9rem, 4vw, 3rem);
+        letter-spacing: -0.03em;
+      }
+      .lead { margin: 0.35rem 0 0; color: var(--muted); max-width: 65ch; }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        padding: 0.35rem 0.7rem;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: #0e1830;
+        color: var(--muted);
+        font-size: 0.86rem;
+      }
+      .dot {
+        width: 0.55rem;
+        height: 0.55rem;
+        border-radius: 50%;
+        background: #8795b5;
+      }
+      .dot.ok { background: var(--ok); }
+      .dot.err { background: var(--err); }
+
+      .layout {
+        display: grid;
+        gap: 1rem;
+        grid-template-columns: repeat(12, 1fr);
+      }
+      .panel {
+        background: linear-gradient(180deg, var(--panel) 0%, var(--panel-soft) 100%);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        padding: 1rem;
+      }
+      .panel h2 { margin: 0 0 0.3rem; font-size: 1.1rem; }
+      .panel .sub { margin: 0 0 0.95rem; color: var(--muted); font-size: 0.94rem; }
+      .seed { grid-column: span 6; }
+      .download { grid-column: span 6; }
+      .activity { grid-column: span 12; }
+
+      @media (max-width: 900px) {
+        .seed, .download { grid-column: span 12; }
+      }
+
+      .dropzone {
+        border: 2px dashed var(--border);
+        border-radius: 14px;
+        min-height: 135px;
+        display: grid;
+        place-items: center;
+        text-align: center;
+        padding: 0.9rem;
+        background: #0d162b;
+        transition: 180ms ease;
+      }
+      .dropzone.drag {
+        border-color: var(--accent);
+        background: #11274a;
+        transform: translateY(-1px);
+      }
+
+      .row { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; }
+      .row.spread { justify-content: space-between; }
+
+      input[type="file"] { display: none; }
+      textarea, input[type="text"] {
+        width: 100%;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        background: #0a1325;
+        color: var(--text);
+        padding: 0.7rem;
+        font: inherit;
+      }
+      textarea { min-height: 95px; resize: vertical; }
+
+      button {
+        border: none;
+        border-radius: 10px;
+        padding: 0.62rem 0.9rem;
+        font: inherit;
+        font-weight: 650;
+        cursor: pointer;
+        transition: 160ms ease;
+      }
+      button.primary { background: var(--accent); color: #032136; }
+      button.primary:hover { background: var(--accent-strong); }
+      button.secondary {
+        background: #162643;
+        color: var(--text);
+        border: 1px solid #2b4471;
+      }
+      button.ghost {
+        background: transparent;
+        color: var(--muted);
+        border: 1px solid var(--border);
+      }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+      .status { font-size: 0.93rem; color: var(--muted); min-height: 1.35rem; margin: 0.5rem 0 0; }
+      .status.ok { color: var(--ok); }
+      .status.warn { color: var(--warn); }
+      .status.err { color: var(--err); }
+
+      .file-list {
+        margin: 0.7rem 0 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 0.45rem;
+      }
+      .file-item {
+        border: 1px solid var(--border);
+        background: var(--surface);
+        border-radius: 10px;
+        padding: 0.55rem 0.7rem;
+        display: flex;
+        justify-content: space-between;
+        gap: 0.6rem;
+      }
+
+      .progress {
+        margin-top: 0.6rem;
+        width: 100%;
+        height: 10px;
+        background: #0a1322;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        overflow: hidden;
+      }
+      .progress > div {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, #2ea3ff, #7dfcc0);
+        transition: width 140ms linear;
+      }
+
+      .activity-grid {
+        display: grid;
+        gap: 0.8rem;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      }
+      .stat {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 0.75rem;
+        background: #0c162b;
+      }
+      .k { color: var(--muted); font-size: 0.85rem; margin: 0; }
+      .v { margin: 0.25rem 0 0; font-size: 1.08rem; font-weight: 680; }
+
+      .helper {
+        margin-top: 1rem;
+        color: var(--muted);
+        font-size: 0.86rem;
+      }
+      code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+    </style>
+  </head>
+  <body>
+    <main class="container">
+      <header class="hero">
+        <div>
+          <h1>TideP2P</h1>
+          <p class="lead">Send files directly between browsers with WebRTC. Fully static app, Cloudflare Pages compatible.</p>
+        </div>
+        <div class="pill"><span id="stateDot" class="dot"></span><span id="clientState">Starting WebTorrent client…</span></div>
+      </header>
+
+      <section class="layout">
+        <article class="panel seed">
+          <h2>Share files</h2>
+          <p class="sub">Pick files, start seeding, and send the magnet link.</p>
+
+          <div id="dropzone" class="dropzone" role="button" tabindex="0" aria-label="Drop files here or browse">
+            <div>
+              <div style="font-size:1.02rem;font-weight:650;">Drop files here</div>
+              <div class="sub" style="margin:0.3rem 0 0.2rem;">or click to browse</div>
+              <button id="browseBtn" class="secondary" type="button">Choose files</button>
+            </div>
+          </div>
+          <input id="fileInput" type="file" multiple />
+
+          <ul id="seedFileList" class="file-list"></ul>
+
+          <div class="row" style="margin-top:0.7rem;">
+            <button id="seedBtn" class="primary" disabled type="button">Start sharing</button>
+            <button id="stopSeedBtn" class="ghost" disabled type="button">Stop sharing</button>
+          </div>
+          <p id="seedStatus" class="status">No files selected.</p>
+
+          <label for="magnetOut" class="sub" style="margin-top:0.7rem;display:block;">Share this magnet link</label>
+          <textarea id="magnetOut" readonly placeholder="Magnet link appears after seeding."></textarea>
+          <div class="row">
+            <button id="copyMagnetBtn" class="secondary" disabled type="button">Copy magnet</button>
+            <button id="copyUrlBtn" class="secondary" disabled type="button">Copy share URL</button>
+          </div>
+        </article>
+
+        <article class="panel download">
+          <h2>Receive files</h2>
+          <p class="sub">Paste a magnet link (or open a share URL) to download.</p>
+
+          <label for="magnetIn" class="sub" style="display:block;margin:0 0 0.4rem;">Magnet link</label>
+          <textarea id="magnetIn" placeholder="magnet:?xt=urn:btih:..."></textarea>
+
+          <div class="row" style="margin-top:0.7rem;">
+            <button id="downloadBtn" class="primary" type="button">Start download</button>
+            <button id="cancelDownloadBtn" class="ghost" disabled type="button">Cancel</button>
+          </div>
+
+          <div class="progress" aria-label="Download progress"><div id="downloadProgress"></div></div>
+          <p id="downloadStatus" class="status">Waiting for magnet link.</p>
+
+          <div id="downloadFileArea" class="file-list" style="margin-top:0.7rem;"></div>
+        </article>
+
+        <article class="panel activity">
+          <h2>Session stats</h2>
+          <div class="activity-grid">
+            <div class="stat"><p class="k">Connected peers</p><p id="statPeers" class="v">0</p></div>
+            <div class="stat"><p class="k">Upload speed</p><p id="statUp" class="v">0 B/s</p></div>
+            <div class="stat"><p class="k">Download speed</p><p id="statDown" class="v">0 B/s</p></div>
+            <div class="stat"><p class="k">Active torrents</p><p id="statTorrents" class="v">0</p></div>
+          </div>
+          <p class="helper">Keep the tab open while sharing. For privacy, exchange links over a secure channel.</p>
+        </article>
+      </section>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/webtorrent@latest/webtorrent.min.js"></script>
+    <script>
+      const TRACKERS = [
+        'wss://tracker.openwebtorrent.com',
+        'wss://tracker.files.fm:7073/announce',
+        'wss://tracker.btorrent.xyz',
+      ];
+
+      const els = {
+        fileInput: document.getElementById('fileInput'),
+        browseBtn: document.getElementById('browseBtn'),
+        dropzone: document.getElementById('dropzone'),
+        seedFileList: document.getElementById('seedFileList'),
+        seedBtn: document.getElementById('seedBtn'),
+        stopSeedBtn: document.getElementById('stopSeedBtn'),
+        seedStatus: document.getElementById('seedStatus'),
+        magnetOut: document.getElementById('magnetOut'),
+        copyMagnetBtn: document.getElementById('copyMagnetBtn'),
+        copyUrlBtn: document.getElementById('copyUrlBtn'),
+        magnetIn: document.getElementById('magnetIn'),
+        downloadBtn: document.getElementById('downloadBtn'),
+        cancelDownloadBtn: document.getElementById('cancelDownloadBtn'),
+        downloadStatus: document.getElementById('downloadStatus'),
+        downloadProgress: document.getElementById('downloadProgress'),
+        downloadFileArea: document.getElementById('downloadFileArea'),
+        stateDot: document.getElementById('stateDot'),
+        clientState: document.getElementById('clientState'),
+        statPeers: document.getElementById('statPeers'),
+        statUp: document.getElementById('statUp'),
+        statDown: document.getElementById('statDown'),
+        statTorrents: document.getElementById('statTorrents'),
+      };
+
+      const state = {
+        selectedFiles: [],
+        seedTorrent: null,
+        downloadTorrent: null,
+      };
+
+      const fmtBytes = (n) => {
+        if (!Number.isFinite(n) || n < 0) return '0 B';
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        let i = 0;
+        while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+        return `${n.toFixed(i > 1 ? 2 : 0)} ${units[i]}`;
+      };
+      const fmtSpeed = (n) => `${fmtBytes(n)}/s`;
+
+      const setStatus = (el, msg, type = '') => {
+        el.className = `status${type ? ` ${type}` : ''}`;
+        el.textContent = msg;
+      };
+
+      const setClientState = (text, ok) => {
+        els.clientState.textContent = text;
+        els.stateDot.className = `dot ${ok ? 'ok' : 'err'}`;
+      };
+
+      const copyText = async (text) => {
+        if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        ta.remove();
+      };
+
+      const renderSeedFiles = () => {
+        els.seedFileList.innerHTML = '';
+        state.selectedFiles.forEach((f) => {
+          const li = document.createElement('li');
+          li.className = 'file-item';
+          li.innerHTML = `<span>${f.name}</span><span>${fmtBytes(f.size)}</span>`;
+          els.seedFileList.appendChild(li);
+        });
+        els.seedBtn.disabled = !state.selectedFiles.length || !client;
+        setStatus(els.seedStatus, state.selectedFiles.length ? `${state.selectedFiles.length} file(s) ready to share.` : 'No files selected.');
+      };
+
+      const selectFiles = (files) => {
+        state.selectedFiles = Array.from(files || []).filter((f) => f && f.size >= 0);
+        renderSeedFiles();
+      };
+
+      const stopSeeding = () => {
+        if (!state.seedTorrent) return;
+        state.seedTorrent.destroy();
+        state.seedTorrent = null;
+        els.stopSeedBtn.disabled = true;
+        setStatus(els.seedStatus, 'Sharing stopped.', 'warn');
+      };
+
+      const clearDownload = (message = 'Download canceled.', type = 'warn') => {
+        if (state.downloadTorrent) state.downloadTorrent.destroy();
+        state.downloadTorrent = null;
+        els.cancelDownloadBtn.disabled = true;
+        els.downloadProgress.style.width = '0%';
+        if (message) setStatus(els.downloadStatus, message, type);
+      };
+
+      const client = (window.WebTorrent && WebTorrent.WEBRTC_SUPPORT) ? new WebTorrent() : null;
+      if (client) setClientState('WebTorrent ready', true);
+      else {
+        setClientState('WebRTC not supported in this browser', false);
+        els.seedBtn.disabled = true;
+        els.downloadBtn.disabled = true;
+      }
+
+      if (client) {
+        client.on('error', (err) => {
+          console.error(err);
+          setClientState('Client error — refresh and retry', false);
+        });
+      }
+
+      els.browseBtn.addEventListener('click', () => els.fileInput.click());
+      els.dropzone.addEventListener('click', () => els.fileInput.click());
+      els.dropzone.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          els.fileInput.click();
+        }
+      });
+      els.fileInput.addEventListener('change', () => selectFiles(els.fileInput.files));
+      ['dragover', 'dragenter'].forEach((evt) => {
+        els.dropzone.addEventListener(evt, (e) => {
+          e.preventDefault();
+          els.dropzone.classList.add('drag');
+        });
+      });
+      ['dragleave', 'drop'].forEach((evt) => {
+        els.dropzone.addEventListener(evt, () => els.dropzone.classList.remove('drag'));
+      });
+      els.dropzone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        selectFiles(e.dataTransfer.files);
+      });
+
+      els.seedBtn.addEventListener('click', () => {
+        if (!client || !state.selectedFiles.length) return;
+        if (state.seedTorrent) stopSeeding();
+        setStatus(els.seedStatus, 'Creating torrent and announcing to trackers…');
+
+        client.seed(state.selectedFiles, { announce: TRACKERS }, (torrent) => {
+          state.seedTorrent = torrent;
+          els.stopSeedBtn.disabled = false;
+          els.magnetOut.value = torrent.magnetURI;
+          els.copyMagnetBtn.disabled = false;
+          els.copyUrlBtn.disabled = false;
+
+          const updateSeedMsg = () => setStatus(
+            els.seedStatus,
+            `Sharing ${torrent.files.length} file(s) • ${torrent.numPeers} peer(s) connected.`,
+            'ok'
+          );
+          updateSeedMsg();
+          torrent.on('wire', updateSeedMsg);
+          torrent.on('noPeers', () => setStatus(els.seedStatus, 'No peers yet. Keep this tab open and share the link.', 'warn'));
+          torrent.on('error', (err) => setStatus(els.seedStatus, `Seed error: ${err.message}`, 'err'));
+        });
+      });
+
+      els.stopSeedBtn.addEventListener('click', stopSeeding);
+
+      els.copyMagnetBtn.addEventListener('click', async () => {
+        if (!els.magnetOut.value) return;
+        try {
+          await copyText(els.magnetOut.value);
+          setStatus(els.seedStatus, 'Magnet copied to clipboard.', 'ok');
+        } catch {
+          setStatus(els.seedStatus, 'Clipboard permission denied. Copy manually.', 'warn');
+        }
+      });
+
+      els.copyUrlBtn.addEventListener('click', async () => {
+        if (!els.magnetOut.value) return;
+        const url = new URL(window.location.href);
+        url.searchParams.set('magnet', els.magnetOut.value);
+        try {
+          await copyText(url.toString());
+          setStatus(els.seedStatus, 'Share URL copied to clipboard.', 'ok');
+        } catch {
+          setStatus(els.seedStatus, 'Unable to copy URL. Copy manually.', 'warn');
+        }
+      });
+
+      const renderDownloadFiles = (torrent) => {
+        els.downloadFileArea.innerHTML = '';
+        torrent.files.forEach((file) => {
+          const wrap = document.createElement('div');
+          wrap.className = 'file-item';
+          const left = document.createElement('div');
+          left.innerHTML = `<strong>${file.name}</strong><div class="sub" style="margin:0.2rem 0 0;">${fmtBytes(file.length)}</div>`;
+          const save = document.createElement('button');
+          save.type = 'button';
+          save.className = 'secondary';
+          save.textContent = 'Save';
+          save.addEventListener('click', () => {
+            file.getBlob((err, blob) => {
+              if (err || !blob) {
+                setStatus(els.downloadStatus, `Save failed for ${file.name}.`, 'err');
+                return;
+              }
+              const href = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = href;
+              a.download = file.name;
+              a.click();
+              setTimeout(() => URL.revokeObjectURL(href), 10000);
+            });
+          });
+          wrap.append(left, save);
+          els.downloadFileArea.appendChild(wrap);
+        });
+      };
+
+      els.downloadBtn.addEventListener('click', () => {
+        if (!client) return;
+        const magnet = els.magnetIn.value.trim();
+        if (!magnet.startsWith('magnet:?')) {
+          setStatus(els.downloadStatus, 'Please paste a valid magnet link.', 'err');
+          return;
+        }
+
+        clearDownload('', '');
+        els.downloadFileArea.innerHTML = '';
+        setStatus(els.downloadStatus, 'Connecting to peers…');
+        els.cancelDownloadBtn.disabled = false;
+
+        state.downloadTorrent = client.add(magnet, { announce: TRACKERS });
+        const torrent = state.downloadTorrent;
+
+        const updateProgress = () => {
+          const pct = Math.max(0, Math.min(100, torrent.progress * 100));
+          els.downloadProgress.style.width = `${pct.toFixed(1)}%`;
+          setStatus(els.downloadStatus, `Downloading ${pct.toFixed(1)}% • ${torrent.numPeers} peer(s).`);
+        };
+
+        torrent.on('metadata', () => setStatus(els.downloadStatus, `Metadata ready: ${torrent.name || 'torrent'}.`));
+        torrent.on('download', updateProgress);
+        torrent.on('wire', updateProgress);
+        torrent.on('done', () => {
+          els.downloadProgress.style.width = '100%';
+          setStatus(els.downloadStatus, 'Download complete. Save your files below.', 'ok');
+          renderDownloadFiles(torrent);
+        });
+        torrent.on('noPeers', () => setStatus(els.downloadStatus, 'No peers found yet. Ask sender to keep sharing.', 'warn'));
+        torrent.on('error', (err) => setStatus(els.downloadStatus, `Download error: ${err.message}`, 'err'));
+      });
+
+      els.cancelDownloadBtn.addEventListener('click', () => clearDownload());
+
+      const refreshStats = () => {
+        if (!client) return;
+        const peers = client.torrents.reduce((sum, t) => sum + t.numPeers, 0);
+        els.statPeers.textContent = String(peers);
+        els.statUp.textContent = fmtSpeed(client.uploadSpeed || 0);
+        els.statDown.textContent = fmtSpeed(client.downloadSpeed || 0);
+        els.statTorrents.textContent = String(client.torrents.length);
+      };
+      setInterval(refreshStats, 500);
+
+      const prefillMagnet = new URL(window.location.href).searchParams.get('magnet');
+      if (prefillMagnet && prefillMagnet.startsWith('magnet:?')) {
+        els.magnetIn.value = prefillMagnet;
+        setStatus(els.downloadStatus, 'Magnet pre-filled from URL. Click "Start download".', 'ok');
+      }
+      renderSeedFiles();
+    </script>
+  </body>
+</html>
