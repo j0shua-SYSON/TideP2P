@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TideP2P — Browser File Sharing</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #070b14;
+        --panel: #111a2b;
+        --panel-soft: #17243c;
+        --text: #eaf1ff;
+        --muted: #9bb0d6;
+        --accent: #5ad1ff;
+        --accent-2: #70ffa3;
+        --danger: #ff7a9e;
+        --border: #26406a;
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        color: var(--text);
+        background: radial-gradient(circle at top, #11203f 0%, var(--bg) 45%);
+        min-height: 100vh;
+      }
+
+      .container {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 2rem 1rem 3rem;
+      }
+
+      h1 {
+        margin-bottom: 0.4rem;
+        font-size: clamp(1.9rem, 5vw, 3rem);
+      }
+
+      .sub {
+        color: var(--muted);
+        margin-top: 0;
+      }
+
+      .grid {
+        display: grid;
+        gap: 1rem;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      }
+
+      .card {
+        background: linear-gradient(180deg, var(--panel) 0%, var(--panel-soft) 100%);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 1rem;
+      }
+
+      h2 { margin-top: 0; }
+
+      .dropzone {
+        border: 2px dashed var(--border);
+        border-radius: 14px;
+        padding: 1rem;
+        text-align: center;
+        transition: 0.2s ease;
+      }
+
+      .dropzone.drag {
+        border-color: var(--accent);
+        background: #0f213f;
+      }
+
+      input[type="file"] {
+        width: 100%;
+        margin-top: 0.7rem;
+      }
+
+      button {
+        border: none;
+        padding: 0.6rem 0.85rem;
+        border-radius: 10px;
+        background: var(--accent);
+        color: #002133;
+        font-weight: 700;
+        cursor: pointer;
+        margin-top: 0.6rem;
+      }
+
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      textarea {
+        width: 100%;
+        min-height: 120px;
+        border-radius: 10px;
+        background: #0b1425;
+        color: var(--text);
+        border: 1px solid var(--border);
+        padding: 0.6rem;
+      }
+
+      .muted { color: var(--muted); font-size: 0.93rem; }
+      .status { margin-top: 0.6rem; }
+      .ok { color: var(--accent-2); }
+      .bad { color: var(--danger); }
+
+      .pill {
+        display: inline-block;
+        border-radius: 100px;
+        padding: 0.2rem 0.6rem;
+        background: #102038;
+        color: var(--muted);
+        font-size: 0.8rem;
+        border: 1px solid var(--border);
+      }
+
+      ul { margin-top: 0.4rem; padding-left: 1.2rem; }
+      code { word-break: break-all; }
+      footer { margin-top: 1.4rem; color: var(--muted); font-size: 0.9rem; }
+      a { color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <main class="container">
+      <h1>TideP2P</h1>
+      <p class="sub">Share files directly browser-to-browser using WebRTC (no app install, static-site friendly for Cloudflare Pages).</p>
+
+      <div class="grid">
+        <section class="card">
+          <h2>1) Seed a file</h2>
+          <div id="dropzone" class="dropzone">
+            Drop files here or choose files.
+            <input id="fileInput" type="file" multiple />
+          </div>
+          <button id="seedBtn" disabled>Start sharing</button>
+          <p id="seedStatus" class="status muted">No files selected.</p>
+          <label for="magnetOut" class="muted">Share this magnet link:</label>
+          <textarea id="magnetOut" readonly placeholder="Magnet link appears after seeding..."></textarea>
+          <button id="copyMagnetBtn" disabled>Copy magnet</button>
+        </section>
+
+        <section class="card">
+          <h2>2) Download from a magnet</h2>
+          <label for="magnetIn" class="muted">Paste a magnet link</label>
+          <textarea id="magnetIn" placeholder="magnet:?xt=urn:btih:..."></textarea>
+          <button id="downloadBtn">Download</button>
+          <p id="downloadStatus" class="status muted">Waiting for link...</p>
+          <div id="downloadArea"></div>
+        </section>
+      </div>
+
+      <section class="card" style="margin-top: 1rem;">
+        <h2>How this works</h2>
+        <ul>
+          <li>Files transfer via WebRTC peers using WebTorrent trackers.</li>
+          <li>Your Cloudflare Pages deployment serves only static HTML/JS/CSS.</li>
+          <li>Peers must keep the tab open while seeding for fast downloads.</li>
+        </ul>
+        <span id="clientState" class="pill">WebTorrent client: starting...</span>
+      </section>
+
+      <footer>
+        Tip: For private sharing, exchange magnet links over a secure channel (Signal, 1Password item, etc.).
+      </footer>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/webtorrent@latest/webtorrent.min.js"></script>
+    <script>
+      const fileInput = document.getElementById('fileInput');
+      const dropzone = document.getElementById('dropzone');
+      const seedBtn = document.getElementById('seedBtn');
+      const seedStatus = document.getElementById('seedStatus');
+      const magnetOut = document.getElementById('magnetOut');
+      const copyMagnetBtn = document.getElementById('copyMagnetBtn');
+
+      const magnetIn = document.getElementById('magnetIn');
+      const downloadBtn = document.getElementById('downloadBtn');
+      const downloadStatus = document.getElementById('downloadStatus');
+      const downloadArea = document.getElementById('downloadArea');
+      const clientState = document.getElementById('clientState');
+
+      const selectedFiles = [];
+
+      if (!window.WebTorrent || !WebTorrent.WEBRTC_SUPPORT) {
+        clientState.textContent = 'WebRTC unsupported in this browser.';
+        clientState.classList.add('bad');
+        seedBtn.disabled = true;
+        downloadBtn.disabled = true;
+      }
+
+      const client = window.WebTorrent ? new WebTorrent() : null;
+      if (client) {
+        clientState.textContent = 'WebTorrent client: ready';
+        clientState.classList.add('ok');
+      }
+
+      const updateSelected = () => {
+        seedBtn.disabled = selectedFiles.length === 0 || !client;
+        seedStatus.textContent = selectedFiles.length
+          ? `${selectedFiles.length} file(s) selected.`
+          : 'No files selected.';
+      };
+
+      fileInput.addEventListener('change', () => {
+        selectedFiles.length = 0;
+        selectedFiles.push(...fileInput.files);
+        updateSelected();
+      });
+
+      dropzone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropzone.classList.add('drag');
+      });
+      dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
+      dropzone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropzone.classList.remove('drag');
+        selectedFiles.length = 0;
+        selectedFiles.push(...e.dataTransfer.files);
+        updateSelected();
+      });
+
+      seedBtn.addEventListener('click', () => {
+        seedStatus.textContent = 'Seeding started… generating magnet link.';
+        client.seed(selectedFiles, { announce: ['wss://tracker.openwebtorrent.com', 'wss://tracker.files.fm:7073/announce'] }, (torrent) => {
+          magnetOut.value = torrent.magnetURI;
+          copyMagnetBtn.disabled = false;
+          seedStatus.innerHTML = `<span class="ok">Sharing live.</span> Connected peers: <strong>${torrent.numPeers}</strong>`;
+          torrent.on('wire', () => {
+            seedStatus.innerHTML = `<span class="ok">Sharing live.</span> Connected peers: <strong>${torrent.numPeers}</strong>`;
+          });
+        });
+      });
+
+      copyMagnetBtn.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(magnetOut.value);
+          copyMagnetBtn.textContent = 'Copied!';
+          setTimeout(() => (copyMagnetBtn.textContent = 'Copy magnet'), 1500);
+        } catch {
+          alert('Clipboard copy failed. Please copy manually.');
+        }
+      });
+
+      downloadBtn.addEventListener('click', () => {
+        const magnet = magnetIn.value.trim();
+        if (!magnet.startsWith('magnet:?')) {
+          downloadStatus.innerHTML = '<span class="bad">Invalid magnet link.</span>';
+          return;
+        }
+
+        downloadArea.innerHTML = '';
+        downloadStatus.textContent = 'Connecting to peers...';
+
+        client.add(magnet, { announce: ['wss://tracker.openwebtorrent.com', 'wss://tracker.files.fm:7073/announce'] }, (torrent) => {
+          torrent.on('download', () => {
+            const pct = (torrent.progress * 100).toFixed(1);
+            downloadStatus.textContent = `Downloading: ${pct}% • ${torrent.numPeers} peers`;
+          });
+
+          torrent.on('done', () => {
+            downloadStatus.innerHTML = '<span class="ok">Download complete.</span> Click files below to save.';
+            torrent.files.forEach((file) => {
+              const wrapper = document.createElement('p');
+              file.appendTo(wrapper, { autoplay: false });
+              const btn = document.createElement('button');
+              btn.textContent = `Save ${file.name}`;
+              btn.addEventListener('click', () => file.getBlobURL((err, url) => {
+                if (err) return;
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = file.name;
+                a.click();
+                setTimeout(() => URL.revokeObjectURL(url), 5000);
+              }));
+              downloadArea.append(wrapper, btn);
+            });
+          });
+
+          torrent.on('error', (err) => {
+            downloadStatus.innerHTML = `<span class="bad">${err.message}</span>`;
+          });
+        });
+      });
+    </script>
+  </body>
+</html>
